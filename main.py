@@ -26,7 +26,6 @@ class CookieVault:
         return [c for c in self.cookies if c['user_id'] == user_id]
 
     def set_selected_cookie(self, user_id, cookie_obj):
-        # Guardamos la cookie seleccionada en la sesión del usuario
         if not hasattr(self, '_selected_cookies'):
             self._selected_cookies = {}
         self._selected_cookies[user_id] = cookie_obj
@@ -146,7 +145,8 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if isinstance(selected_cookie['data'], str):
             session.cookies.set_string(selected_cookie['data'])
             
-        resp = session.get(tv_url, timeout=10)
+        # Aumentamos el timeout a 15 segundos para evitar TimedOut
+        resp = session.get(tv_url, timeout=15)
         
         if resp.status_code == 200:
             await update.message.reply_text(f"📺 ¡Vinculación exitosa!\n\nHas ingresado al modo TV2 con tu cookie seleccionada.\nCódigo usado: {code}\nIP Falsa activa: {spoof_manager.current_ip}")
@@ -167,7 +167,8 @@ def main():
     app.add_handler(CommandHandler('linktv', link_to_tv))
 
     logger.info("Bot starting...")
-    app.run_polling()
+    # Usamos read_timeout y write_timeout para manejar mejor los tiempos de espera
+    app.run_polling(drop_pending_updates=True, read_timeout=10, write_timeout=10, connect_timeout=10)
 
 if __name__ == '__main__':
     main()
