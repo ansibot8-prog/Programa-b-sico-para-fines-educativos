@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # --- CLASE DE GESTIÓN DE COOKIES (VAULT) ---
 class CookieVault:
     def __init__(self):
-        self.cookies = [] # Lista de diccionios { 'id': 1, 'name': 'user1', 'data': {...} }
+        self.cookies = [] # Lista de diccionios { 'id': 1, 'user_id': int, 'data': {...} }
         self.selected_cookie_id = None
 
     def add_cookie(self, user_id, cookie_data):
