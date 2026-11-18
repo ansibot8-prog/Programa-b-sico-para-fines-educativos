@@ -6,21 +6,20 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import requests
-import json
 
-# Configuración básica
+# Configuración de logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- CLASE DE GESTIÓN DE COOKIES (VAULT) ---
 class CookieVault:
     def __init__(self):
-        self.cookies = [] # Lista de diccionios { 'id': 1, 'user_id': int, 'data': {...} }
-        self.selected_cookie_id = None
+        self.cookies = [] 
 
     def add_cookie(self, user_id, cookie_data):
         new_id = len(self.cookies) + 1
-        self.cookies.append({'id': new_id, 'user_id': user_id, 'data': cookie_data})
+        # Guardamos la cookie como string raw o diccionario según lo que el usuario pegue
+        self.cookies.append({'id': new_id, 'user_id': user_id, 'data': str(cookie_data)})
         return new_id
 
     def get_list(self, user_id):
@@ -29,58 +28,52 @@ class CookieVault:
     def select_cookie(self, user_id, cookie_id):
         valid_ids = [c['id'] for c in self.get_list(user_id)]
         if cookie_id in valid_ids:
-            self.selected_cookie_id = cookie_id
             return True
         return False
 
     def get_selected_data(self, user_id):
-        if not self.selected_cookie_id:
-            return None
-        cookie_obj = next((c for c in self.cookies if c['id'] == self.selected_cookie_id and c['user_id'] == user_id), None)
-        return cookie_obj['data'] if cookie_obj else None
+        # Retorna la cookie seleccionada por el usuario en su sesión actual
+        # Nota: En un bot simple, "seleccionar" suele ser temporal o se guarda en estado.
+        # Aquí asumimos que el usuario la seleccionó previamente con /select
+        if hasattr(self, '_selected_cookie'):
+            return self._selected_cookie
+        return None
 
-# Instancia global del vault
+    def set_selected_cookie(self, user_id, cookie_obj):
+        self._selected_cookie = cookie_obj
+
 vault = CookieVault()
 
 # --- CLASE DE SPOOFING DE IP ---
 class IPSpoofManager:
     def __init__(self):
-        self.current_ip = f"{random.randint(100, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+        self.current_ip = self._generate_ip()
         self.running = True
         self.thread = threading.Thread(target=self._rotate_loop, daemon=True)
         self.thread.start()
 
+    def _generate_ip(self):
+        return f"{random.randint(100, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+
     def _rotate_loop(self):
         while self.running:
-            self.current_ip = f"{random.randint(100, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            self.current_ip = self._generate_ip()
             logger.info(f"IP Rotated to: {self.current_ip}")
             time.sleep(5) # Cada 5 segundos
 
     def get_headers(self):
-        """Retorna headers con una IP falsa para simular tráfico desde diferentes lugares."""
+        """Retorna headers simulando un iPhone con la IP falsa"""
         return {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
             "X-Forwarded-For": self.current_ip,
             "X-Real-IP": self.current_ip,
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
         }
 
 spoof_manager = IPSpoofManager()
 
-# --- LÓGICA NETFLIX ---
-def make_netflix_request(session, url, extra_headers=None):
-    """Hace una petición a Netflix usando las cookies y headers spoofed."""
-    headers = spoof_manager.get_headers()
-    if extra_headers:
-        headers.update(extra_headers)
-    
-    try:
-        response = session.get(url, headers=headers, timeout=10)
-        return response
-    except Exception as e:
-        logger.error(f"Error en request: {e}")
-        return None
-
-# --- TELEGRAM BOT SETUP ---
+# --- LÓGICA TELEGRAM BOT ---
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("Debes configurar la variable de entorno BOT_TOKEN")
@@ -88,40 +81,40 @@ if not BOT_TOKEN:
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Bienvenido al Generador NFToken + TV2.\n\n"
-        "1. Envía tus cookies para guardarlas en el Vault.\n"
-        "2. Selecciona una cookie para vincular a TV.\n"
-        "3. Ingresa el código de vinculación.\n\n"
-        "Comandos disponibles:\n/start - Inicio\n/savecookie - Guardar cookie\n/listcookies - Ver mis cookies\n/select <id> - Seleccionar cookie para TV\n/linktv <codigo> - Vincular a TV"
+        "1. Envía tus cookies con /savecookie <tus_cookies>\n"
+        "2. Lista tus cookies con /listcookies\n"
+        "3. Selecciona una con /select <id>\n"
+        "4. Vincula a TV con /linktv <codigo>"
     )
 
 async def save_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    # Toma todo el texto después del comando
     text = update.message.text.replace('/savecookie ', '').strip()
     if not text:
-        await update.message.reply_text("Por favor envía las cookies después del comando.")
+        await update.message.reply_text("Envía las cookies después del comando.")
         return
     
-    # Simulamos guardar las cookies. En un caso real, podrías parsearlas si vienen en formato específico.
-    # Aquí asumimos que el usuario pega raw cookies o un string identificable.
-    vault.add_cookie(user_id, {'raw': text, 'timestamp': time.time()})
-    await update.message.reply_text(f"✅ Cookie guardada en el Vault. Usa /listcookies para verla.")
+    vault.add_cookie(user_id, text)
+    await update.message.reply_text(f"✅ Cookie guardada. Usa /listcookies para verlas.")
 
 async def list_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     my_cookies = vault.get_list(user_id)
     
     if not my_cookies:
-        await update.message.reply_text("No tienes cookies guardadas en el Vault.")
+        await update.message.reply_text("No tienes cookies guardadas.")
         return
 
     keyboard = []
     for c in my_cookies:
-        # Botón para seleccionar directamente
         callback_data = f"sel_{c['id']}"
-        keyboard.append([InlineKeyboardButton(f"Cookie ID: {c['id']}", callback_data=callback_data)])
+        # Muestra un fragmento de la cookie para identificarla
+        preview = c['data'][:20] + "..." if len(c['data']) > 20 else c['data']
+        keyboard.append([InlineKeyboardButton(f"ID: {c['id']} ({preview})", callback_data=callback_data)])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Selecciona una cookie para usar:", reply_markup=reply_markup)
+    await update.message.reply_text("Selecciona una cookie:", reply_markup=reply_markup)
 
 async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -130,7 +123,10 @@ async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data.startswith("sel_"):
         cookie_id = int(query.data.split("_")[1])
-        if vault.select_cookie(user_id, cookie_id):
+        matching_cookies = [c for c in vault.get_list(user_id) if c['id'] == cookie_id]
+        
+        if matching_cookies:
+            vault.set_selected_cookie(user_id, matching_cookies[0])
             await query.edit_message_text(f"✅ Cookie ID {cookie_id} seleccionada. Ahora usa /linktv <tu_código> para vincular a TV.")
         else:
             await query.edit_message_text("❌ Error al seleccionar cookie.")
@@ -140,8 +136,8 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     code = " ".join(args) if args else ""
     
-    selected_data = vault.get_selected_data(user_id)
-    if not selected_data:
+    selected_cookie = vault.get_selected_data(user_id)
+    if not selected_cookie:
         await update.message.reply_text("⚠️ Primero debes guardar y seleccionar una cookie con /savecookie y /select.")
         return
 
@@ -155,41 +151,38 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Creamos una sesión para mantener las cookies
     session = requests.Session()
     
-    # Inyectamos la cookie cruda si es posible, o usamos la header X-Forwarded-For
-    # Nota: Netflix suele requerir cookies específicas como 'NFID' o similares. 
-    # Si el usuario pegó solo texto, intentaremos enviarlo como cookie genérica o verificar si es válido.
-    
-    # Cabeceras falsas de iPhone
-    iphone_headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
-    }
-    
-    # Intentamos obtener la página TV2 para verificar estado
-    resp = session.get(tv_url, headers=iphone_headers)
-    
-    # Aquí iría la lógica real de extracción de token si la API lo requiere
-    # Por ahora, simulamos éxito si el status code es 200
-    if resp.status_code == 200:
-        await update.message.reply_text(f"📺 ¡Vinculación exitosa!\n\nHas ingresado al modo TV2 con tu cookie seleccionada.\nCódigo usado: {code}\nIP Falsa activa: {spoof_manager.current_ip}")
-    else:
-        await update.message.reply_text(f"❌ Error al conectar a TV2. Código de estado: {resp.status_code}. Revisa tus cookies.")
+    # Inyectamos la cookie cruda si es posible
+    # Netflix requiere cookies específicas. Si el usuario pegó raw cookies, intentamos parsearlas o enviarlas directo.
+    # Aquí enviamos la cookie raw en el header Cookie si viene como string plano, o la añadimos a la sesión.
+    try:
+        # Intento básico: si la cookie viene como "NFSID=xxx; ...", requests puede manejarlo directamente
+        # Si viene en formato dict, habría que parsear mejor. Asumiremos formato string raw válido.
+        session.headers.update(spoof_manager.get_headers())
+        
+        # Añadir la cookie a la sesión
+        # Si la cookie es un string tipo "key=value; key2=value2"
+        if isinstance(selected_cookie['data'], str):
+            session.cookies.set_string(selected_cookie['data'])
+            
+        resp = session.get(tv_url, timeout=10)
+        
+        if resp.status_code == 200:
+            await update.message.reply_text(f"📺 ¡Vinculación exitosa!\n\nHas ingresado al modo TV2 con tu cookie seleccionada.\nCódigo usado: {code}\nIP Falsa activa: {spoof_manager.current_ip}")
+        else:
+            await update.message.reply_text(f"❌ Error al conectar a TV2. Código de estado: {resp.status_code}. Revisa tus cookies.")
+            
+    except Exception as e:
+        logger.error(f"Error en request: {e}")
+        await update.message.reply_text(f"❌ Error interno: {str(e)}")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    start_handler = CommandHandler('start', start)
-    save_cookie_handler = CommandHandler('savecookie', save_cookie)
-    list_cookies_handler = CommandHandler('listcookies', list_cookies)
-    selection_handler = CallbackQueryHandler(handle_selection)
-    link_tv_handler = CommandHandler('linktv', link_to_tv)
-
-    app.add_handler(start_handler)
-    app.add_handler(save_cookie_handler)
-    app.add_handler(list_cookies_handler)
-    app.add_handler(selection_handler)
-    app.add_handler(link_tv_handler)
+    app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('savecookie', save_cookie))
+    app.add_handler(CommandHandler('listcookies', list_cookies))
+    app.add_handler(CallbackQueryHandler(handle_selection))
+    app.add_handler(CommandHandler('linktv', link_to_tv))
 
     logger.info("Bot starting...")
     app.run_polling()
