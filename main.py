@@ -4,7 +4,7 @@ import random
 import threading
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler
 import requests
 from bs4 import BeautifulSoup
 
@@ -149,7 +149,10 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resp = session.get(tv_url, timeout=15)
         
         if resp.status_code == 200:
-            await update.message.reply_text(f"📺 ¡Vinculación exitosa!\n\nHas ingresado al modo TV2 con tu cookie seleccionada.\nCódigo usado: {code}\nIP Falsa activa: {spoof_manager.current_ip}")
+            # Mensaje idéntico al de la captura
+            await update.message.reply_text(
+                f"✅✅\nTV ACTIVATED\nCode : {code}\nCountry : FR\nPlan : Unknown\nYour TV is ready. Enjoy 🍿"
+            )
         else:
             await update.message.reply_text(f"❌ Error al conectar a TV2. Código de estado: {resp.status_code}. Revisa tus cookies.")
             
