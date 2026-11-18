@@ -6,8 +6,9 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 import requests
+from bs4 import BeautifulSoup
 
-# Configuración de logs
+# --- CONFIGURACIÓN DE LOGS ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -120,53 +121,4 @@ async def handle_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
             vault.set_selected_cookie(user_id, matching_cookies[0])
             await query.edit_message_text(f"✅ Cookie ID {cookie_id} seleccionada. Ahora usa /linktv <tu_código> para vincular a TV.")
         else:
-            await query.edit_message_text("❌ Error al seleccionar cookie.")
-
-async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    args = context.args
-    code = " ".join(args) if args else ""
-    
-    selected_cookie = vault.get_selected_cookie(user_id)
-    if not selected_cookie:
-        await update.message.reply_text("⚠️ Primero debes guardar y seleccionar una cookie con /savecookie y /select.")
-        return
-
-    if not code:
-        await update.message.reply_text("⚠️ Por favor indica el código de vinculación. Ejemplo: /linktv 123456")
-        return
-
-    tv_url = "https://www.netflix.com/us-es/tv2"
-    
-    session = requests.Session()
-    session.headers.update(spoof_manager.get_headers())
-    
-    try:
-        if isinstance(selected_cookie['data'], str):
-            session.cookies.set_string(selected_cookie['data'])
-            
-        resp = session.get(tv_url, timeout=10)
-        
-        if resp.status_code == 200:
-            await update.message.reply_text(f"📺 ¡Vinculación exitosa!\n\nHas ingresado al modo TV2 con tu cookie seleccionada.\nCódigo usado: {code}\nIP Falsa activa: {spoof_manager.current_ip}")
-        else:
-            await update.message.reply_text(f"❌ Error al conectar a TV2. Código de estado: {resp.status_code}. Revisa tus cookies.")
-            
-    except Exception as e:
-        logger.error(f"Error en request: {e}")
-        await update.message.reply_text(f"❌ Error interno: {str(e)}")
-
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('savecookie', save_cookie))
-    app.add_handler(CommandHandler('listcookies', list_cookies))
-    app.add_handler(CallbackQueryHandler(handle_selection))
-    app.add_handler(CommandHandler('linktv', link_to_tv))
-
-    logger.info("Bot starting...")
-    app.run_polling()
-
-if __name__ == '__main__':
-    main()
+           
