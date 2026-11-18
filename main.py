@@ -18,29 +18,22 @@ class CookieVault:
 
     def add_cookie(self, user_id, cookie_data):
         new_id = len(self.cookies) + 1
-        # Guardamos la cookie como string raw o diccionario según lo que el usuario pegue
         self.cookies.append({'id': new_id, 'user_id': user_id, 'data': str(cookie_data)})
         return new_id
 
     def get_list(self, user_id):
         return [c for c in self.cookies if c['user_id'] == user_id]
 
-    def select_cookie(self, user_id, cookie_id):
-        valid_ids = [c['id'] for c in self.get_list(user_id)]
-        if cookie_id in valid_ids:
-            return True
-        return False
-
-    def get_selected_data(self, user_id):
-        # Retorna la cookie seleccionada por el usuario en su sesión actual
-        # Nota: En un bot simple, "seleccionar" suele ser temporal o se guarda en estado.
-        # Aquí asumimos que el usuario la seleccionó previamente con /select
-        if hasattr(self, '_selected_cookie'):
-            return self._selected_cookie
-        return None
-
     def set_selected_cookie(self, user_id, cookie_obj):
-        self._selected_cookie = cookie_obj
+        # Guardamos la cookie seleccionada en la sesión del usuario
+        if not hasattr(self, '_selected_cookies'):
+            self._selected_cookies = {}
+        self._selected_cookies[user_id] = cookie_obj
+
+    def get_selected_cookie(self, user_id):
+        if hasattr(self, '_selected_cookies'):
+            return self._selected_cookies.get(user_id)
+        return None
 
 vault = CookieVault()
 
@@ -89,7 +82,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def save_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    # Toma todo el texto después del comando
     text = update.message.text.replace('/savecookie ', '').strip()
     if not text:
         await update.message.reply_text("Envía las cookies después del comando.")
@@ -109,7 +101,6 @@ async def list_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for c in my_cookies:
         callback_data = f"sel_{c['id']}"
-        # Muestra un fragmento de la cookie para identificarla
         preview = c['data'][:20] + "..." if len(c['data']) > 20 else c['data']
         keyboard.append([InlineKeyboardButton(f"ID: {c['id']} ({preview})", callback_data=callback_data)])
     
@@ -136,7 +127,7 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     code = " ".join(args) if args else ""
     
-    selected_cookie = vault.get_selected_data(user_id)
+    selected_cookie = vault.get_selected_cookie(user_id)
     if not selected_cookie:
         await update.message.reply_text("⚠️ Primero debes guardar y seleccionar una cookie con /savecookie y /select.")
         return
@@ -145,22 +136,12 @@ async def link_to_tv(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Por favor indica el código de vinculación. Ejemplo: /linktv 123456")
         return
 
-    # Simulación de conexión a TV2 como iPhone
     tv_url = "https://www.netflix.com/us-es/tv2"
     
-    # Creamos una sesión para mantener las cookies
     session = requests.Session()
+    session.headers.update(spoof_manager.get_headers())
     
-    # Inyectamos la cookie cruda si es posible
-    # Netflix requiere cookies específicas. Si el usuario pegó raw cookies, intentamos parsearlas o enviarlas directo.
-    # Aquí enviamos la cookie raw en el header Cookie si viene como string plano, o la añadimos a la sesión.
     try:
-        # Intento básico: si la cookie viene como "NFSID=xxx; ...", requests puede manejarlo directamente
-        # Si viene en formato dict, habría que parsear mejor. Asumiremos formato string raw válido.
-        session.headers.update(spoof_manager.get_headers())
-        
-        # Añadir la cookie a la sesión
-        # Si la cookie es un string tipo "key=value; key2=value2"
         if isinstance(selected_cookie['data'], str):
             session.cookies.set_string(selected_cookie['data'])
             
